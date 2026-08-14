@@ -1,14 +1,14 @@
-import { createClient } from '@vercel/kv';
-const kv = createClient({
+import { Redis } from "@upstash/redis";
+const redis = new Redis({
   url: process.env.KV_REST_API_URL,
-  token: process.env.KV_REST_API_TOKEN,
+  token: process.env.KV_REST_API_TOKEN
 });
 
 export default async function handler(req) {
   if(req.method !== 'POST') return new Response('method error',{status:405});
   const {system,msg,sessionId} = await req.json();
   const apiKey = process.env.ARK_API_KEY;
-  const model = process.env.MODEL_NAME || "doubao-pro-4k";
+  const model = process.env.MODEL_NAME || "doubao-pro";
   if(!apiKey) return Response.json({success:false,msg:"缺少密钥配置"});
 
   const messages = [
@@ -26,9 +26,9 @@ export default async function handler(req) {
   const data = await resp.json();
   const content = data?.choices?.[0]?.message?.content || "获取回复失败";
 
-  // 简单存入对话记录
-  await kv.lpush(`session:${sessionId}`,JSON.stringify({role:"user",content:msg,time:Date.now()}));
-  await kv.lpush(`session:${sessionId}`,JSON.stringify({role:"assistant",content,time:Date.now()}));
+  // 写入redis云端存储
+  await redis.lpush(`session:${sessionId}`,JSON.stringify({role:"user",content:msg,time:Date.now()}));
+  await redis.lpush(`session:${sessionId}`,JSON.stringify({role:"assistant",content,time:Date.now()}));
 
   return Response.json({success:true,content});
 }
