@@ -1,0 +1,12 @@
+{
+  "functions": {
+    "api/*.js": {
+      "runtime": "nodejs18.x"
+    }
+  },
+  "build": {
+    "env": {
+      "VERCEL_KV": true
+    }
+  }
+}

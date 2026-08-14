@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>不锈钢屏风谈单助手</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft YaHei,sans-serif}
+body{background:#f4f6f8;height:100vh;display:flex;overflow:hidden}
+.sidebar{width:260px;background:#1e293b;color:#fff;padding:16px;overflow-y:auto}
+.main{flex:1;display:flex;flex-direction:column}
+.title{font-size:17px;font-weight:bold;margin-bottom:16px}
+.btn{padding:10px;border:none;border-radius:7px;cursor:pointer;font-size:14px}
+.btn-primary{background:#2563eb;color:#fff;width:100%;margin-bottom:16px}
+.btn-primary:disabled{background:#80a2e8;cursor:not-allowed}
+.session-item{padding:10px 12px;border-radius:6px;margin-bottom:6px;cursor:pointer;font-size:14px}
+.session-item:hover{background:#334155}
+.session-item.active{background:#475569}
+.chat-box{flex:1;padding:16px;overflow-y:auto;background:#fff}
+.input-area{padding:16px;border-top:1px solid #ddd;background:#fff}
+textarea{width:100%;padding:12px;border:1px solid #ccc;border-radius:8px;min-height:90px;font-size:15px;resize:none}
+.customer-bubble{background:#dbeafe;padding:12px;border-radius:8px;margin:10px 0}
+.reply-bubble{background:#f8fafc;border-left:5px solid #2563eb;padding:14px;border-radius:8px;margin:10px 0;white-space:pre-line}
+.op-row{margin-top:10px;display:flex;gap:10px}
+.eval-row{margin-top:8px;display:flex;gap:12px}
+.eval-btn{border:1px solid #ccc;background:#fff;padding:4px 10px;border-radius:5px;cursor:pointer}
+.loading{color:#2563eb;padding:6px 0}
+.modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);align-items:center;justify-content:center}
+.modal-content{background:#fff;width:90%;max-width:500px;padding:20px;border-radius:10px}
+</style>
+</head>
+<body>
+<div class="sidebar">
+    <div class="title">客户会话列表</div>
+    <button class="btn btn-primary" onclick="createSession()">➕新建客户对话</button>
+    <div id="sessionList"></div>
+</div>
+<div class="main">
+    <div class="chat-box" id="chat"></div>
+    <div class="input-area">
+        <div>模拟客户消息：</div>
+        <textarea id="customerInput" placeholder="输入客户咨询内容"></textarea>
+        <div class="op-row">
+            <button class="btn btn-primary" id="sendBtn" onclick="sendMsg()">联网生成3套谈单回复</button>
+            <button class="btn" onclick="clearChat()">清空对话</button>
+        </div>
+    </div>
+</div>
+
+<!-- 差评反馈弹窗 -->
+<div class="modal" id="feedbackModal">
+    <div class="modal-content">
+        <h4>反馈优化建议</h4>
+        <p style="margin:8px 0">问题描述：</p>
+        <textarea id="feedbackReason" style="width:100%;min-height:60px" placeholder="AI话术存在什么问题？"></textarea>
+        <p style="margin:8px 0">推荐标准话术（可选）：</p>
+        <textarea id="bestReply" style="width:100%;min-height:60px" placeholder="填写你觉得合适的回复"></textarea>
+        <div style="margin-top:12px;display:flex;gap:10px">
+            <button class="btn btn-primary" onclick="submitFeedback()">提交反馈</button>
+            <button class="btn" onclick="closeModal()">取消</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const API_PREFIX = "/api";
+let sessions = [];
+let activeSid = null;
+let currentReplyId = null;
+
+// 系统提示词（后续优化话术直接在这里修改）
+const SYSTEM_PROMPT = `你是不锈钢屏风、金属隔断定制行业资深销售谈单顾问。主营：不锈钢玄关屏风、酒店会所金属装饰、激光镂空造型、管材焊接隔断，非标尺寸定制。材质包含201/304不锈钢；表面工艺：拉丝、镜面、黑钛、古铜、香槟金、玫瑰金镀钛。
+客户发来咨询，请严格输出3套差异化聊天话术，固定格式：
+====方案1（专业工程版）====
+适合装修公司、工装项目、酒店工程，突出材质、工艺、生产周期、图纸深化、质保，语言严谨专业。
+====方案2（家装亲切版）====
+针对私人业主，通俗易懂，主动询问安装位置、尺寸、装修风格，拉近距离。
+====方案3（高效线上版）====
+简短精炼，适配微信/抖音私信，快速抛出关键问题，引导客户提供需求。
+沟通重点：主动引导客户提供：现场尺寸、安装位置、喜欢款式、预算；解答色差、生锈、运输、上门测量、工期、报价相关问题；不要过度长篇大论，贴合普通人线上聊天语气。
+严格遵守输出格式，不要额外多余说明。`
+
+// 会话管理
+function createSession(){
+    const sid = Date.now().toString();
+    sessions.push({id:sid,name:`客户${sessions.length+1}`,history:[]});
+    switchSession(sid);
+    renderSession();
+}
+function switchSession(sid){
+    activeSid = sid;renderSession();renderChat();
+}
+function renderSession(){
+    const wrap=document.getElementById('sessionList');wrap.innerHTML="";
+    sessions.forEach(s=>{
+        const div=document.createElement('div');
+        div.className='session-item '+(s.id===activeSid?'active':'');
+        div.innerText=s.name;div.onclick=()=>switchSession(s.id);
+        wrap.appendChild(div);
+    })
+}
+function getActive(){return sessions.find(s=>s.id===activeSid)}
+function renderChat(){
+    const box=document.getElementById('chat');box.innerHTML="";
+    const s=getActive();if(!s)return;
+    s.history.forEach(item=>{
+        if(item.role==='customer'){
+            box.innerHTML+=`<div class="customer-bubble"><strong>客户：</strong>${item.content}</div>`
+        }else if(item.role==='reply'){
+            box.innerHTML+=`
+            <div class="reply-bubble">
+                <strong>AI推荐回复</strong><br>${item.content}
+                <div class="eval-row">
+                    <button class="eval-btn" onclick="likeReply('${item.rid}')">👍满意</button>
+                    <button class="eval-btn" onclick="openFeedback('${item.rid}')">👎不满意</button>
+                </div>
+            </div>`
+        }else if(item.role==='loading'){
+            box.innerHTML+=`<div class="loading">请求中，请稍候...</div>`
+        }
+    })
+    box.scrollTop=box.scrollHeight;
+}
+function clearChat(){
+    const s=getActive();if(!s)return alert("先新建对话");
+    s.history=[];renderChat();
+}
+
+// AI对话请求
+async function sendMsg(){
+    const text=document.getElementById('customerInput').value.trim();
+    if(!text)return alert("请输入客户消息");
+    const s=getActive();if(!s)return alert("请新建客户对话");
+    const sendBtn=document.getElementById('sendBtn');
+    sendBtn.disabled=true;
+    s.history.push({role:'customer',content:text});
+    s.history.push({role:'loading'});
+    renderChat();
+    document.getElementById('customerInput').value="";
+    s.history=s.history.filter(x=>x.role!=='loading');
+    try{
+        const res=await fetch(`${API_PREFIX}/chat`,{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({
+                system:SYSTEM_PROMPT,
+                msg:text,
+                sessionId:activeSid
+            })
+        })
+        const data=await res.json();
+        if(!data.success){
+            alert(data.msg||"调用失败");
+            sendBtn.disabled=false;return;
+        }
+        const rid=Date.now().toString();
+        s.history.push({role:'reply',content:data.content,rid});
+    }catch(e){
+        alert("网络异常");console.error(e);
+    }
+    renderChat();
+    sendBtn.disabled=false;
+}
+
+// 反馈相关
+function openFeedback(rid){
+    currentReplyId=rid;
+    document.getElementById('feedbackReason').value="";
+    document.getElementById('bestReply').value="";
+    document.getElementById('feedbackModal').style.display="flex";
+}
+function closeModal(){
+    document.getElementById('feedbackModal').style.display="none";
+}
+async function likeReply(rid){
+    await submitEval(rid,"good","","");
+    alert("已记录好评");
+}
+async function submitFeedback(){
+    const reason=document.getElementById('feedbackReason').value.trim();
+    const best=document.getElementById('bestReply').value.trim();
+    await submitEval(currentReplyId,"bad",reason,best);
+    closeModal();
+    alert("反馈提交成功，云端已保存");
+}
+async function submitEval(rid,type,reason,bestText){
+    try{
+        await fetch(`${API_PREFIX}/feedback`,{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({
+                replyId:rid,
+                sessionId:activeSid,
+                type,reason,bestText
+            })
+        })
+    }catch(e){console.error(e)}
+}
+createSession();
+</script>
+</body>
+</html>
