@@ -27,8 +27,8 @@ export default async function handler(req) {
   const content = data?.choices?.[0]?.message?.content || "获取回复失败";
 
   // 写入redis云端存储
-  await redis.lpush(`session:${sessionId}`,JSON.stringify({role:"user",content:msg,time:Date.now()}));
-  await redis.lpush(`session:${sessionId}`,JSON.stringify({role:"assistant",content,time:Date.now()}));
+  // await redis.lpush(`session:${sessionId}`,JSON.stringify({role:"user",content:msg,time:Date.now()}));
+  // await redis.lpush(`session:${sessionId}`,JSON.stringify({role:"assistant",content,time:Date.now()}));
 
   return Response.json({success:true,content});
 }
