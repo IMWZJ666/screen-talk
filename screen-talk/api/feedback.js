@@ -1,7 +1,7 @@
-import { createClient } from '@vercel/kv';
-const kv = createClient({
+import { Redis } from "@upstash/redis";
+const redis = new Redis({
   url: process.env.KV_REST_API_URL,
-  token: process.env.KV_REST_API_TOKEN,
+  token: process.env.KV_REST_API_TOKEN
 });
 
 export default async function handler(req) {
@@ -11,6 +11,6 @@ export default async function handler(req) {
     ...body,
     createTime: new Date().toLocaleString()
   };
-  await kv.lpush("feedback_list",JSON.stringify(saveData));
+  await redis.lpush("feedback_list",JSON.stringify(saveData));
   return Response.json({success:true});
 }
