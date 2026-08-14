@@ -17,6 +17,10 @@ export default async function handler(req) {
       { role: "user", content: msg }
     ];
 
+    // 增加20秒强制超时
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
     const resp = await fetch("https://ark.cn-beijing.volces.com/api/v3/chat/completions", {
       method: "POST",
       headers: {
@@ -24,8 +28,9 @@ export default async function handler(req) {
         "Authorization": `Bearer ${apiKey}`
       },
       body: JSON.stringify({ model, messages, temperature: 0.75 }),
-      signal: AbortSignal.timeout(25000) // 增加25秒超时限制
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
 
     const data = await resp.json();
     const content = data?.choices?.[0]?.message?.content || "获取回复失败";
@@ -33,7 +38,10 @@ export default async function handler(req) {
     return Response.json({ success: true, content });
 
   } catch (err) {
-    console.error("接口异常：", err);
-    return Response.json({ success: false, msg: "服务请求异常" }, { status: 500 });
+    console.error("错误：", err);
+    if (err.name === "AbortError") {
+      return Response.json({ success: false, msg: "请求超时，请重试" });
+    }
+    return Response.json({ success: false, msg: "服务请求异常" });
   }
 }
